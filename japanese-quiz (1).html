@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>단어 맞추기 서바이벌</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f3f4f6;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .pop-in { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes popIn {
+            from { opacity: 0; transform: scale(0.8); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #818cf8; }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col sm:justify-center sm:items-center bg-gradient-to-br from-indigo-50 via-white to-blue-50 relative">
+
+    <div id="app-container" class="w-full h-full sm:w-[400px] sm:h-[750px] sm:rounded-3xl sm:shadow-2xl sm:border border-gray-100 bg-white relative overflow-hidden flex flex-col">
+        
+        <!-- 1. 시작 화면 -->
+        <div id="screen-start" class="absolute inset-0 flex flex-col items-center justify-start p-6 fade-in z-10 bg-white overflow-y-auto">
+            <div class="text-6xl mb-4 mt-6">🇯🇵</div>
+            <h1 class="text-3xl font-black text-gray-800 mb-2 tracking-tight text-center">일본어 단어<br>200 퀴즈</h1>
+            <p class="text-gray-500 mb-6 text-center text-sm leading-relaxed">
+                200 개의 단어의 뜻을 맞춰보세요<br>
+            </p>
+
+            <div class="w-full mb-4">
+                <label for="nickname-input" class="block text-sm font-bold text-gray-700 mb-1 ml-1">플레이어 닉네임</label>
+                <input type="text" id="nickname-input" class="w-full bg-gray-50 border-2 border-gray-200 text-gray-800 text-center text-lg rounded-xl p-3 focus:outline-none focus:border-indigo-500 transition-all font-bold" placeholder="닉네임을 입력하세요" maxlength="10">
+                <p id="nickname-error" class="text-red-500 text-xs mt-1 ml-1 hidden">닉네임을 입력해야 시작할 수 있습니다.</p>
+            </div>
+
+            <div class="flex w-full gap-2 mb-8">
+                <button onclick="window.showVoca()" class="flex-1 bg-teal-50 hover:bg-teal-100 text-teal-600 font-bold py-3 px-4 rounded-xl transition-all active:scale-95 text-sm border border-teal-200">
+                    📖 단어장
+                </button>
+                <button onclick="window.startGame()" class="flex-[2] bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-indigo-200 transition-all active:scale-95 text-lg">
+                    도전 시작 
+                </button>
+            </div>
+
+            <!-- 리더보드 -->
+            <div class="w-full flex-1 flex flex-col bg-gray-50 rounded-2xl p-4 border border-gray-100">
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="text-xl">🏆</span>
+                    <h3 class="font-bold text-gray-800">최고기록 (Top 10)</h3>
+                    <span id="loading-ranking" class="text-xs text-indigo-500 ml-auto animate-pulse">불러오는 중...</span>
+                </div>
+                <div id="ranking-list" class="flex-1 overflow-y-auto space-y-2 pr-1"></div>
+            </div>
+        </div>
+
+        <!-- 2. 게임 화면 -->
+        <div id="screen-game" class="absolute inset-0 flex flex-col hidden bg-white z-10">
+            <div class="p-5 flex justify-between items-center border-b border-gray-100 bg-white/80 backdrop-blur-sm z-20">
+                <div class="flex items-center gap-2">
+                    <span class="text-2xl">🔥</span>
+                    <span class="font-bold text-gray-700">현재 <span id="current-score" class="text-indigo-600 text-lg">0</span> 문제 돌파</span>
+                </div>
+                <div class="text-sm font-semibold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
+                    <span id="current-index-text">1</span> / 200
+                </div>
+            </div>
+
+            <div class="flex-1 flex flex-col items-center justify-center p-6 relative">
+                <div id="word-card" class="w-full bg-white rounded-3xl shadow-xl border border-gray-50 p-8 flex flex-col items-center pop-in relative overflow-hidden">
+                    <div class="absolute top-0 w-full h-2 bg-gradient-to-r from-indigo-400 to-blue-400"></div>
+                    <div id="word-jp" class="text-5xl font-black text-gray-800 mt-4 mb-3 tracking-widest text-center">ねこ</div>
+                    <div id="word-pron" class="text-lg text-gray-400 font-medium mb-6 text-center">neko (네코)</div>
+                    <div class="w-full relative mt-4">
+                        <input type="text" id="answer-input" 
+                            class="w-full bg-gray-50 border-2 border-gray-200 text-gray-800 text-center text-xl rounded-2xl p-4 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all font-bold placeholder-gray-300" 
+                            placeholder="한국어 뜻 입력" 
+                            autocomplete="off"
+                            onkeypress="window.handleKeyPress(event)">
+                    </div>
+                </div>
+                <div class="w-full flex mt-8">
+                    <button onclick="window.checkAnswer()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95 text-xl tracking-wide">
+                        정답 입력
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. 결과 화면 -->
+        <div id="screen-result" class="absolute inset-0 flex flex-col items-center justify-center p-6 hidden bg-white z-10">
+            <div id="result-emoji" class="text-7xl mb-4 pop-in">💀</div>
+            <h2 id="result-title" class="text-3xl font-black text-gray-800 mb-2">게임 오버</h2>
+            <p id="result-message" class="text-gray-500 text-center mb-8">안타깝게도 목표 도달에 실패했습니다.</p>
+            
+            <div class="bg-indigo-50 rounded-3xl p-6 w-full max-w-sm mb-8 flex flex-col items-center border border-indigo-100 relative">
+                <div class="absolute -top-3 bg-indigo-600 text-white text-xs font-bold px-3 py-1 rounded-full">내 기록</div>
+                <span id="result-nickname" class="text-indigo-400 font-bold text-sm mb-1 mt-2">Player</span>
+                <div class="text-5xl font-black text-indigo-600 flex items-baseline gap-1">
+                    <span id="final-score">0</span><span class="text-xl text-indigo-400">문제</span>
+                </div>
+            </div>
+
+            <button onclick="window.goToStart()" class="w-full max-w-sm bg-gray-800 hover:bg-gray-900 text-white font-bold py-4 px-6 rounded-2xl shadow-lg transition-all active:scale-95 text-lg mb-3">
+                랭킹 확인 & 다시하기
+            </button>
+        </div>
+
+        <!-- 4. 단어장 화면 -->
+        <div id="screen-voca" class="absolute inset-0 flex flex-col hidden bg-white z-20">
+            <div class="p-4 flex justify-between items-center border-b border-gray-200 bg-white">
+                <h2 class="text-xl font-bold text-gray-800">📖 200단어 마스터장</h2>
+                <button onclick="window.switchScreen('screen-start')" class="bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1 rounded-lg font-bold text-sm transition-all">
+                    닫기 ✕
+                </button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-4 bg-gray-50">
+                <div id="voca-list" class="grid grid-cols-1 gap-2 pb-6"></div>
+            </div>
+        </div>
+
+        <!-- 오답 커스텀 알럿 -->
+        <div id="custom-alert" class="absolute inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6 hidden opacity-0 transition-opacity duration-200">
+            <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-6 flex flex-col items-center transform scale-95 transition-transform duration-200" id="custom-alert-box">
+                <div id="alert-emoji" class="text-5xl mb-3">❌</div>
+                <h3 id="alert-title" class="text-xl font-bold text-gray-800 mb-2">오답입니다</h3>
+                <p id="alert-message" class="text-gray-500 text-center mb-6 whitespace-pre-line leading-relaxed">정답은 ~ 입니다.</p>
+                <button id="alert-btn" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-xl active:scale-95 transition-all">
+                    결과 보기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🔥 Supabase 초기화
+        // ==========================================
+        const SUPABASE_URL = 'https://oefkwchylxvpniqbkcbh.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9lZmt3Y2h5bHh2cG5pcWJrY2JoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5MTcxNTMsImV4cCI6MjA5MDQ5MzE1M30.s3S-LFp8gFufZyNf61nEiPBoRcCcp9cxLUb8_2ge7mE';
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // 랭킹 불러오기
+        async function loadRankings() {
+            const loadingEl = document.getElementById('loading-ranking');
+            loadingEl.classList.remove('hidden');
+            loadingEl.textContent = '불러오는 중...';
+            loadingEl.classList.add('animate-pulse');
+
+            const { data, error } = await supabaseClient
+                .from('survival_rankings')
+                .select('nickname, score, created_at')
+                .order('score', { ascending: false })
+                .order('created_at', { ascending: true })
+                .limit(10);
+
+            loadingEl.classList.add('hidden');
+
+            if (error) {
+                console.error('랭킹 로드 실패 코드:', error.code);
+                console.error('랭킹 로드 실패 메시지:', error.message);
+                console.error('랭킹 로드 실패 상세:', error.details);
+                loadingEl.textContent = `오류: ${error.message || '알 수 없음'}`;
+                loadingEl.classList.remove('hidden', 'animate-pulse');
+                return;
+            }
+
+            renderRankings(data || []);
+        }
+
+        // 랭킹 렌더링
+        function renderRankings(ranks) {
+            const listContainer = document.getElementById('ranking-list');
+            listContainer.innerHTML = '';
+
+            if (ranks.length === 0) {
+                listContainer.innerHTML = '<div class="text-sm text-gray-400 text-center py-4">아직 기록이 없습니다. 첫 번째 랭커가 되어보세요!</div>';
+                return;
+            }
+
+            ranks.forEach((rank, index) => {
+                const isTop3 = index < 3;
+                let medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
+                let bgClass = isTop3 ? 'bg-white shadow-sm border border-indigo-50' : 'bg-transparent border-b border-gray-100 last:border-0';
+
+                const item = document.createElement('div');
+                item.className = `flex justify-between items-center p-3 rounded-xl ${bgClass}`;
+                item.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <span class="${isTop3 ? 'text-xl' : 'text-gray-400 font-bold w-6 text-center'}">${medal}</span>
+                        <span class="font-bold ${isTop3 ? 'text-indigo-900' : 'text-gray-700'}">${rank.nickname}</span>
+                    </div>
+                    <div class="font-black ${isTop3 ? 'text-indigo-600' : 'text-gray-500'}">${rank.score} <span class="text-xs font-normal">문제</span></div>
+                `;
+                listContainer.appendChild(item);
+            });
+        }
+
+        // 점수 저장
+        async function saveScoreToCloud(nickname, score) {
+            if (score === 0) return;
+            const { error } = await supabaseClient
+                .from('survival_rankings')
+                .insert([{ nickname, score }]);
+
+            if (error) console.error('점수 저장 실패:', error.message, error.details);
+        }
+
+        // ==========================================
+        // 🌟 단어 데이터
+        // ==========================================
+        const originalWordData = [
+            { word: 'ねこ', pron: 'neko (네코)', meanings: ['고양이'] }, { word: 'いぬ', pron: 'inu (이누)', meanings: ['개', '강아지'] }, { word: 'とり', pron: 'tori (토리)', meanings: ['새'] }, { word: 'さかな', pron: 'sakana (사카나)', meanings: ['물고기', '생선'] }, { word: 'あめ', pron: 'ame (아메)', meanings: ['비', '사탕'] },
+            { word: 'ゆき', pron: 'yuki (유키)', meanings: ['눈'] }, { word: 'くるま', pron: 'kuruma (쿠루마)', meanings: ['자동차', '차'] }, { word: 'ほん', pron: 'hon (혼)', meanings: ['책'] }, { word: 'いえ', pron: 'ie (이에)', meanings: ['집'] }, { word: 'みず', pron: 'mizu (미즈)', meanings: ['물'] },
+            { word: 'うし', pron: 'ushi (우시)', meanings: ['소'] }, { word: 'うま', pron: 'uma (우마)', meanings: ['말'] }, { word: 'つき', pron: 'tsuki (츠키)', meanings: ['달'] }, { word: 'ほし', pron: 'hoshi (호시)', meanings: ['별'] }, { word: 'やま', pron: 'yama (야마)', meanings: ['산'] },
+            { word: 'かわ', pron: 'kawa (카와)', meanings: ['강'] }, { word: 'うみ', pron: 'umi (우미)', meanings: ['바다'] }, { word: 'そら', pron: 'sora (소라)', meanings: ['하늘'] }, { word: 'はな', pron: 'hana (하나)', meanings: ['꽃', '코'] }, { word: 'もり', pron: 'mori (모리)', meanings: ['숲'] },
+            { word: 'つくえ', pron: 'tsukue (츠쿠에)', meanings: ['책상'] }, { word: 'いす', pron: 'isu (이스)', meanings: ['의자'] }, { word: 'まど', pron: 'mado (마도)', meanings: ['창문', '창'] }, { word: 'へや', pron: 'heya (헤야)', meanings: ['방'] }, { word: 'おちゃ', pron: 'ocha (오차)', meanings: ['차', '마시는 차', '녹차'] },
+            { word: 'ごはん', pron: 'gohan (고한)', meanings: ['밥', '식사'] }, { word: 'にく', pron: 'niku (니쿠)', meanings: ['고기'] }, { word: 'やさい', pron: 'yasai (야사이)', meanings: ['채소', '야채'] }, { word: 'いちご', pron: 'ichigo (이치고)', meanings: ['딸기'] }, { word: 'りんご', pron: 'ringo (링고)', meanings: ['사과'] },
+            { word: 'みかん', pron: 'mikan (미칸)', meanings: ['귤'] }, { word: 'もも', pron: 'momo (모모)', meanings: ['복숭아'] }, { word: 'ひと', pron: 'hito (히토)', meanings: ['사람'] }, { word: 'こども', pron: 'kodomo (코도모)', meanings: ['아이', '어린이', '자식'] }, { word: 'おとな', pron: 'otona (오토나)', meanings: ['어른', '성인'] },
+            { word: 'あさ', pron: 'asa (아사)', meanings: ['아침'] }, { word: 'ひる', pron: 'hiru (히루)', meanings: ['낮', '점심'] }, { word: 'よる', pron: 'yoru (요루)', meanings: ['밤'] }, { word: 'きょう', pron: 'kyou (쿄우)', meanings: ['오늘'] }, { word: 'あした', pron: 'ashita (아시타)', meanings: ['내일'] },
+            { word: 'きのう', pron: 'kinou (키노우)', meanings: ['어제'] }, { word: 'いま', pron: 'ima (이마)', meanings: ['지금'] }, { word: 'さくら', pron: 'sakura (사쿠라)', meanings: ['벚꽃'] }, { word: 'くま', pron: 'kuma (쿠마)', meanings: ['곰'] }, { word: 'ぶた', pron: 'buta (부타)', meanings: ['돼지'] },
+            { word: 'さる', pron: 'saru (사루)', meanings: ['원숭이'] }, { word: 'きつね', pron: 'kitsune (키츠네)', meanings: ['여우'] }, { word: 'たぬき', pron: 'tanuki (타누키)', meanings: ['너구리'] }, { word: 'くも', pron: 'kumo (쿠모)', meanings: ['구름', '거미'] }, { word: 'かぜ', pron: 'kaze (카제)', meanings: ['바람', '감기'] },
+            { word: 'いし', pron: 'ishi (이시)', meanings: ['돌'] }, { word: 'かさ', pron: 'kasa (카사)', meanings: ['우산'] }, { word: 'くつ', pron: 'kutsu (쿠츠)', meanings: ['신발', '구두'] }, { word: 'とけい', pron: 'tokei (토케이)', meanings: ['시계'] }, { word: 'かばん', pron: 'kaban (카반)', meanings: ['가방'] },
+            { word: 'えんぴつ', pron: 'enpitsu (엔피츠)', meanings: ['연필'] }, { word: 'すし', pron: 'sushi (스시)', meanings: ['초밥', '스시'] }, { word: 'はる', pron: 'haru (하루)', meanings: ['봄'] }, { word: 'なつ', pron: 'natsu (나츠)', meanings: ['여름'] }, { word: 'あき', pron: 'aki (아키)', meanings: ['가을'] },
+            { word: 'ふゆ', pron: 'fuyu (후유)', meanings: ['겨울'] }, { word: 'め', pron: 'me (메)', meanings: ['눈'] }, { word: 'みみ', pron: 'mimi (미미)', meanings: ['귀'] }, { word: 'くち', pron: 'kuchi (쿠치)', meanings: ['입'] }, { word: 'て', pron: 'te (테)', meanings: ['손'] },
+            { word: 'あし', pron: 'ashi (아시)', meanings: ['발', '다리'] }, { word: 'かお', pron: 'kao (카오)', meanings: ['얼굴'] }, { word: 'かみ', pron: 'kami (카미)', meanings: ['머리카락', '머리', '종이', '신'] }, { word: 'ゆめ', pron: 'yume (유메)', meanings: ['꿈'] }, { word: 'うた', pron: 'uta (우타)', meanings: ['노래'] },
+            { word: 'おと', pron: 'oto (오토)', meanings: ['소리'] }, { word: 'いろ', pron: 'iro (이로)', meanings: ['색깔', '색'] }, { word: 'むし', pron: 'mushi (무시)', meanings: ['벌레', '곤충'] }, { word: 'あか', pron: 'aka (아카)', meanings: ['빨강', '빨간색'] }, { word: 'あお', pron: 'ao (아오)', meanings: ['파랑', '파란색'] },
+            { word: 'くろ', pron: 'kuro (쿠로)', meanings: ['검정', '검은색'] }, { word: 'しろ', pron: 'shiro (시로)', meanings: ['하양', '흰색'] }, { word: 'きいろ', pron: 'kiiro (키이로)', meanings: ['노랑', '노란색'] }, { word: 'みどり', pron: 'midori (미도리)', meanings: ['녹색', '초록색'] }, { word: 'いち', pron: 'ichi (이치)', meanings: ['1', '일'] },
+            { word: 'に', pron: 'ni (니)', meanings: ['2', '이'] }, { word: 'さん', pron: 'san (산)', meanings: ['3', '삼'] }, { word: 'よん', pron: 'yon (욘)', meanings: ['4', '사'] }, { word: 'ご', pron: 'go (고)', meanings: ['5', '오'] }, { word: 'ろく', pron: 'roku (로쿠)', meanings: ['6', '육'] },
+            { word: 'なな', pron: 'nana (나나)', meanings: ['7', '칠'] }, { word: 'はち', pron: 'hachi (하치)', meanings: ['8', '팔'] }, { word: 'きゅう', pron: 'kyuu (큐우)', meanings: ['9', '구'] }, { word: 'じゅう', pron: 'juu (쥬우)', meanings: ['10', '십'] }, { word: 'ちち', pron: 'chichi (치치)', meanings: ['아빠', '아버지'] },
+            { word: 'はは', pron: 'haha (하하)', meanings: ['엄마', '어머니'] }, { word: 'あに', pron: 'ani (아니)', meanings: ['형', '오빠'] }, { word: 'あね', pron: 'ane (아네)', meanings: ['누나', '언니'] }, { word: 'おとうと', pron: 'otouto (오토우토)', meanings: ['남동생'] }, { word: 'いもうと', pron: 'imouto (이모우토)', meanings: ['여동생'] },
+            { word: 'そふ', pron: 'sofu (소후)', meanings: ['할아버지'] }, { word: 'そぼ', pron: 'sobo (소보)', meanings: ['할머니'] }, { word: 'うえ', pron: 'ue (우에)', meanings: ['위'] }, { word: 'した', pron: 'shita (시타)', meanings: ['아래'] }, { word: 'ひだり', pron: 'hidari (히다리)', meanings: ['왼쪽'] },
+            { word: 'みぎ', pron: 'migi (미기)', meanings: ['오른쪽'] }, { word: 'なか', pron: 'naka (나카)', meanings: ['안', '속'] }, { word: 'そと', pron: 'soto (소토)', meanings: ['밖'] }, { word: 'まえ', pron: 'mae (마에)', meanings: ['앞'] }, { word: 'うしろ', pron: 'ushiro (우시로)', meanings: ['뒤'] },
+            { word: 'となり', pron: 'tonari (토나리)', meanings: ['옆'] }, { word: 'たべる', pron: 'taberu (타베루)', meanings: ['먹다'] }, { word: 'のむ', pron: 'nomu (노무)', meanings: ['마시다'] }, { word: 'みる', pron: 'miru (미루)', meanings: ['보다'] }, { word: 'きく', pron: 'kiku (키쿠)', meanings: ['듣다', '묻다'] },
+            { word: 'はなす', pron: 'hanasu (하나스)', meanings: ['말하다', '이야기하다'] }, { word: 'いく', pron: 'iku (이쿠)', meanings: ['가다'] }, { word: 'くる', pron: 'kuru (쿠루)', meanings: ['오다'] }, { word: 'する', pron: 'suru (스루)', meanings: ['하다'] }, { word: 'ある', pron: 'aru (아루)', meanings: ['있다'] },
+            { word: 'おおきい', pron: 'ookii (오오키이)', meanings: ['크다'] }, { word: 'ちいさい', pron: 'chiisai (치이사이)', meanings: ['작다'] }, { word: 'たかい', pron: 'takai (타카이)', meanings: ['높다', '비싸다'] }, { word: 'やすい', pron: 'yasui (야스이)', meanings: ['싸다', '저렴하다'] }, { word: 'あたらしい', pron: 'atarashii (아타라시이)', meanings: ['새롭다', '새것이다'] },
+            { word: 'ふるい', pron: 'furui (후루이)', meanings: ['낡다', '오래되다'] }, { word: 'いい', pron: 'ii (이이)', meanings: ['좋다'] }, { word: 'わるい', pron: 'warui (와루이)', meanings: ['나쁘다'] }, { word: 'あつい', pron: 'atsui (아츠이)', meanings: ['덥다', '뜨겁다', '두껍다'] }, { word: 'さむい', pron: 'samui (사무이)', meanings: ['춥다'] },
+            { word: 'おいしい', pron: 'oishii (오이시이)', meanings: ['맛있다'] }, { word: 'がっこう', pron: 'gakkou (갓코우)', meanings: ['학교'] }, { word: 'びょういん', pron: 'byouin (뵤우인)', meanings: ['병원'] }, { word: 'えき', pron: 'eki (에키)', meanings: ['역'] }, { word: 'みせ', pron: 'mise (미세)', meanings: ['가게', '상점'] },
+            { word: 'げつようび', pron: 'getsuyoubi (게츠요우비)', meanings: ['월요일'] }, { word: 'かようび', pron: 'kayoubi (카요우비)', meanings: ['화요일'] }, { word: 'すいようび', pron: 'suiyoubi (스이요우비)', meanings: ['수요일'] }, { word: 'もくようび', pron: 'mokuyoubi (모쿠요우비)', meanings: ['목요일'] }, { word: 'きんようび', pron: 'kinyoubi (킨요우비)', meanings: ['금요일'] },
+            { word: 'どようび', pron: 'doyoubi (도요우비)', meanings: ['토요일'] }, { word: 'にちようび', pron: 'nichiyoubi (니치요우비)', meanings: ['일요일'] }, { word: 'じかん', pron: 'jikan (지칸)', meanings: ['시간'] }, { word: 'ぱん', pron: 'pan (판)', meanings: ['빵'] }, { word: 'たまご', pron: 'tamago (타마고)', meanings: ['계란', '달걀'] },
+            { word: 'ぎゅうにゅう', pron: 'gyuunyuu (규우뉴우)', meanings: ['우유'] }, { word: 'りょうり', pron: 'ryouri (료오리)', meanings: ['요리'] }, { word: 'ともだち', pron: 'tomodachi (토모다치)', meanings: ['친구'] }, { word: 'せんせい', pron: 'sensei (센세이)', meanings: ['선생님', '선생'] }, { word: 'がくせい', pron: 'gakusei (가쿠세이)', meanings: ['학생'] },
+            { word: 'いしゃ', pron: 'isha (이샤)', meanings: ['의사'] }, { word: 'おとこ', pron: 'otoko (오토코)', meanings: ['남자'] }, { word: 'おんな', pron: 'onna (온나)', meanings: ['여자'] }, { word: 'かぞく', pron: 'kazoku (카조쿠)', meanings: ['가족'] }, { word: 'き', pron: 'ki (키)', meanings: ['나무', '기분'] },
+            { word: 'たいよう', pron: 'taiyou (타이요우)', meanings: ['태양', '해'] }, { word: 'くさ', pron: 'kusa (쿠사)', meanings: ['풀'] }, { word: 'あたま', pron: 'atama (아타마)', meanings: ['머리'] }, { word: 'は', pron: 'ha (하)', meanings: ['치아', '이', '잎'] }, { word: 'おなか', pron: 'onaka (오나카)', meanings: ['배'] },
+            { word: 'くび', pron: 'kubi (쿠비)', meanings: ['목'] }, { word: 'むね', pron: 'mune (무네)', meanings: ['가슴'] }, { word: 'ゆび', pron: 'yubi (유비)', meanings: ['손가락', '발가락'] }, { word: 'ほね', pron: 'hone (호네)', meanings: ['뼈'] }, { word: 'といれ', pron: 'toire (토이레)', meanings: ['화장실'] },
+            { word: 'おふろ', pron: 'ofuro (오후로)', meanings: ['목욕', '욕조'] }, { word: 'だいどころ', pron: 'daidokoro (다이도코로)', meanings: ['부엌', '주방'] }, { word: 'べっど', pron: 'beddo (벳도)', meanings: ['침대'] }, { word: 'てれび', pron: 'terebi (테레비)', meanings: ['텔레비전', '티비', 'tv'] }, { word: 'でんわ', pron: 'denwa (덴와)', meanings: ['전화', '전화기'] },
+            { word: 'しんぶん', pron: 'shinbun (신분)', meanings: ['신문'] }, { word: 'ざっし', pron: 'zasshi (잣시)', meanings: ['잡지'] }, { word: 'じしょ', pron: 'jisho (지쇼)', meanings: ['사전'] }, { word: 'ぺん', pron: 'pen (펜)', meanings: ['펜'] }, { word: 'かう', pron: 'kau (카우)', meanings: ['사다', '구입하다', '기르다'] },
+            { word: 'かく', pron: 'kaku (카쿠)', meanings: ['쓰다', '그리다'] }, { word: 'よむ', pron: 'yomu (요무)', meanings: ['읽다'] }, { word: 'おきる', pron: 'okiru (오키루)', meanings: ['일어나다'] }, { word: 'ねる', pron: 'neru (네루)', meanings: ['자다', '눕다'] }, { word: 'かえる', pron: 'kaeru (카에루)', meanings: ['돌아가다', '돌아오다', '개구리'] },
+            { word: 'およぐ', pron: 'oyogu (오요구)', meanings: ['헤엄치다', '수영하다'] }, { word: 'あそぶ', pron: 'asobu (아소부)', meanings: ['놀다'] }, { word: 'まつ', pron: 'matsu (마츠)', meanings: ['기다리다'] }, { word: 'のる', pron: 'noru (노루)', meanings: ['타다'] }, { word: 'おりる', pron: 'oriru (오리루)', meanings: ['내리다'] },
+            { word: 'わかる', pron: 'wakaru (와카루)', meanings: ['알다', '이해하다'] }, { word: 'むずかしい', pron: 'muzukashii (무즈카시이)', meanings: ['어렵다'] }, { word: 'やさしい', pron: 'yasashii (야사시이)', meanings: ['쉽다', '다정하다', '상냥하다'] }, { word: 'とおい', pron: 'tooi (토오이)', meanings: ['멀다'] }, { word: 'ちかい', pron: 'chikai (치카이)', meanings: ['가깝다'] },
+            { word: 'はやい', pron: 'hayai (하야이)', meanings: ['빠르다', '이르다'] }, { word: 'おそい', pron: 'osoi (오소이)', meanings: ['느리다', '늦다'] }, { word: 'いそがしい', pron: 'isogashii (이소가시이)', meanings: ['바쁘다'] }, { word: 'たのしい', pron: 'tanoshii (타노시이)', meanings: ['즐겁다'] }, { word: 'ぎんこう', pron: 'ginkou (긴코우)', meanings: ['은행'] },
+            { word: 'としょかん', pron: 'toshokan (토쇼칸)', meanings: ['도서관'] }, { word: 'こうえん', pron: 'kouen (코우엔)', meanings: ['공원'] }, { word: 'まち', pron: 'machi (마치)', meanings: ['마을', '거리', '도시'] }, { word: 'くに', pron: 'kuni (쿠니)', meanings: ['나라', '국가'] }, { word: 'ひゃく', pron: 'hyaku (햐쿠)', meanings: ['100', '백'] },
+            { word: 'せん', pron: 'sen (센)', meanings: ['1000', '천'] }, { word: 'まん', pron: 'man (만)', meanings: ['10000', '만'] }, { word: 'ことし', pron: 'kotoshi (코토시)', meanings: ['올해', '금년'] }, { word: 'らいねん', pron: 'rainen (라이넨)', meanings: ['내년'] }, { word: 'きょねん', pron: 'kyonen (쿄넨)', meanings: ['작년'] }
+        ];
+
+        // ==========================================
+        // 🎮 게임 로직
+        // ==========================================
+        let currentPlaylist = [];
+        let currentIndex = 0;
+        let score = 0;
+        let currentNickname = "";
+
+        window.onload = () => {
+            const savedNickname = localStorage.getItem('survivalNickname');
+            if (savedNickname) document.getElementById('nickname-input').value = savedNickname;
+            renderVocaList();
+            loadRankings();
+        };
+
+        function shuffle(array) {
+            let arr = [...array];
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        window.switchScreen = function(screenId) {
+            ['screen-start', 'screen-game', 'screen-result', 'screen-voca'].forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+            });
+            document.getElementById(screenId).classList.remove('hidden');
+
+            if (screenId === 'screen-game') {
+                const card = document.getElementById('word-card');
+                card.classList.remove('pop-in');
+                void card.offsetWidth;
+                card.classList.add('pop-in');
+            }
+        };
+
+        // 시작 화면으로 돌아갈 때 랭킹도 새로고침
+        window.goToStart = function() {
+            window.switchScreen('screen-start');
+            loadRankings();
+        };
+
+        window.showVoca = function() {
+            window.switchScreen('screen-voca');
+        };
+
+        function renderVocaList() {
+            const container = document.getElementById('voca-list');
+            originalWordData.forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = "bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between";
+                div.innerHTML = `
+                    <div class="flex items-baseline gap-2 mb-1 sm:mb-0">
+                        <span class="text-xs text-gray-400 w-6">${index + 1}.</span>
+                        <span class="text-xl font-black text-gray-800">${item.word}</span>
+                        <span class="text-sm text-gray-500">${item.pron}</span>
+                    </div>
+                    <div class="font-bold text-indigo-600 sm:text-right">${item.meanings.join(', ')}</div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        window.startGame = function() {
+            const nickInput = document.getElementById('nickname-input');
+            const nickError = document.getElementById('nickname-error');
+            const nickValue = nickInput.value.trim();
+
+            if (!nickValue) {
+                nickInput.classList.add('border-red-400', 'bg-red-50');
+                nickError.classList.remove('hidden');
+                nickInput.focus();
+                return;
+            }
+
+            nickInput.classList.remove('border-red-400', 'bg-red-50');
+            nickError.classList.add('hidden');
+
+            currentNickname = nickValue;
+            localStorage.setItem('survivalNickname', currentNickname);
+
+            currentPlaylist = shuffle(originalWordData);
+            currentIndex = 0;
+            score = 0;
+            updateGameUI();
+            window.switchScreen('screen-game');
+        };
+
+        function updateGameUI() {
+            const currentWord = currentPlaylist[currentIndex];
+            document.getElementById('word-jp').innerText = currentWord.word;
+            document.getElementById('word-pron').innerText = currentWord.pron;
+            document.getElementById('current-index-text').innerText = currentIndex + 1;
+            document.getElementById('current-score').innerText = score;
+            const input = document.getElementById('answer-input');
+            input.value = '';
+            input.focus();
+        }
+
+        window.handleKeyPress = function(e) {
+            if (e.key === 'Enter') window.checkAnswer();
+        };
+
+        window.checkAnswer = function() {
+            const inputVal = document.getElementById('answer-input').value.trim();
+            if (!inputVal) return;
+
+            const currentWord = currentPlaylist[currentIndex];
+            const isCorrect = currentWord.meanings.some(meaning => inputVal.includes(meaning));
+
+            if (isCorrect) {
+                score++;
+                currentIndex++;
+                if (currentIndex >= currentPlaylist.length) {
+                    endGame(true);
+                } else {
+                    updateGameUI();
+                }
+            } else {
+                const card = document.getElementById('word-card');
+                card.classList.remove('shake');
+                void card.offsetWidth;
+                card.classList.add('shake');
+                showCustomAlert("오답입니다!", `정답은 '${currentWord.meanings.join(', ')}' 입니다.`, "💀", () => endGame(false));
+            }
+        };
+
+        async function endGame(isAllClear = false) {
+            window.switchScreen('screen-result');
+            document.getElementById('final-score').innerText = score;
+            document.getElementById('result-nickname').innerText = currentNickname;
+
+            await saveScoreToCloud(currentNickname, score);
+
+            if (isAllClear) {
+                document.getElementById('result-emoji').innerText = "🎊";
+                document.getElementById('result-title').innerText = "일본어 마스터!";
+                document.getElementById('result-message').innerText = "믿을 수 없습니다! 200개의 단어를 완벽하게 맞추셨습니다!";
+            } else {
+                document.getElementById('result-emoji').innerText = "💀";
+                document.getElementById('result-title').innerText = "게임 오버";
+                document.getElementById('result-message').innerText = `연속 ${score}문제 정답 돌파! 수고하셨습니다.`;
+            }
+        }
+
+        function showCustomAlert(title, message, emoji, onClose) {
+            const alertBg = document.getElementById('custom-alert');
+            const alertBox = document.getElementById('custom-alert-box');
+
+            document.getElementById('alert-title').innerText = title;
+            document.getElementById('alert-message').innerText = message;
+            document.getElementById('alert-emoji').innerText = emoji;
+
+            alertBg.classList.remove('hidden');
+            setTimeout(() => {
+                alertBg.classList.remove('opacity-0');
+                alertBox.classList.remove('scale-95');
+                alertBox.classList.add('scale-100');
+            }, 10);
+
+            const btn = document.getElementById('alert-btn');
+            btn.onclick = () => {
+                alertBg.classList.add('opacity-0');
+                alertBox.classList.remove('scale-100');
+                alertBox.classList.add('scale-95');
+                setTimeout(() => {
+                    alertBg.classList.add('hidden');
+                    if (onClose) onClose();
+                }, 200);
+            };
+            btn.focus();
+        }
+    </script>
+</body>
+</html>
