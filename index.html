@@ -77,7 +77,6 @@
                 </div>
             </div>
 
-            <!-- 로딩 오버레이 (정답 검증 중) -->
             <div id="checking-overlay" class="absolute inset-0 bg-white/80 backdrop-blur-sm hidden flex items-center justify-center rounded-3xl z-30">
                 <div class="flex flex-col items-center gap-3">
                     <div class="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
@@ -97,7 +96,7 @@
     <div id="screen-result" class="absolute inset-0 flex flex-col items-center justify-center p-6 hidden bg-white z-10">
         <div id="result-emoji" class="text-7xl mb-4 pop-in">💀</div>
         <h2 id="result-title" class="text-3xl font-black text-gray-800 mb-2">게임 오버</h2>
-        <p id="result-message" class="text-gray-500 text-center mb-8">안타깝게도 목표 도달에 실패했습니다.</p>
+        <p id="result-message" class="text-gray-500 text-center mb-8"></p>
         <div class="bg-indigo-50 rounded-3xl p-6 w-full max-w-sm mb-8 flex flex-col items-center border border-indigo-100 relative">
             <div class="absolute -top-3 bg-indigo-600 text-white text-xs font-bold px-3 py-1 rounded-full">내 기록</div>
             <span id="result-nickname" class="text-indigo-400 font-bold text-sm mb-1 mt-2">Player</span>
@@ -116,7 +115,13 @@
             <h2 class="text-xl font-bold text-gray-800">📖 200단어 마스터장</h2>
             <button onclick="window.switchScreen('screen-start')" class="bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1 rounded-lg font-bold text-sm transition-all">닫기 ✕</button>
         </div>
-        <div class="flex-1 overflow-y-auto p-4 bg-gray-50">
+        <!-- 로딩 -->
+        <div id="voca-loading" class="flex flex-col items-center justify-center flex-1 gap-3">
+            <div class="w-10 h-10 border-4 border-teal-400 border-t-transparent rounded-full animate-spin"></div>
+            <span class="text-sm text-gray-400">단어장 불러오는 중...</span>
+        </div>
+        <!-- 목록 -->
+        <div class="flex-1 overflow-y-auto p-4 bg-gray-50 hidden" id="voca-scroll">
             <div id="voca-list" class="grid grid-cols-1 gap-2 pb-6"></div>
         </div>
     </div>
@@ -126,19 +131,17 @@
         <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-6 flex flex-col items-center transform scale-95 transition-transform duration-200" id="custom-alert-box">
             <div id="alert-emoji" class="text-5xl mb-3">❌</div>
             <h3 id="alert-title" class="text-xl font-bold text-gray-800 mb-2">오답입니다</h3>
-            <p id="alert-message" class="text-gray-500 text-center mb-6 whitespace-pre-line leading-relaxed">정답은 ~ 입니다.</p>
+            <p id="alert-message" class="text-gray-500 text-center mb-6 whitespace-pre-line leading-relaxed"></p>
             <button id="alert-btn" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-xl active:scale-95 transition-all">결과 보기</button>
         </div>
     </div>
 </div>
 
-<!-- Firebase SDK (모듈 방식) -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
     import { getFirestore, collection, getDocs, query, orderBy, limit, addDoc, serverTimestamp, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
-    // ✅ Firebase 설정
     const firebaseConfig = {
         apiKey: "AIzaSyCbTnU_YMY1V0N0Y0ViomBHX1-JY2xNkyc",
         authDomain: "japanese-504b2.firebaseapp.com",
@@ -152,87 +155,11 @@
     const db = getFirestore(app);
     const auth = getAuth(app);
 
-    // ==========================================
-    // 🔐 익명 인증 (점수 저장용 uid 확보)
-    // ==========================================
     let currentUser = null;
     signInAnonymously(auth).catch(console.error);
     onAuthStateChanged(auth, (user) => { currentUser = user; });
 
-    // ==========================================
-    // 🏆 랭킹
-    // ==========================================
-    async function loadRankings() {
-        const el = document.getElementById('loading-ranking');
-        el.classList.remove('hidden');
-        el.textContent = '불러오는 중...';
-
-        try {
-            const q = query(
-                collection(db, 'rankings'),
-                orderBy('score', 'desc'),
-                orderBy('createdAt', 'asc'),
-                limit(10)
-            );
-            const snap = await getDocs(q);
-            const ranks = snap.docs.map(d => d.data());
-            renderRankings(ranks);
-        } catch(e) {
-            console.error(e);
-        } finally {
-            el.classList.add('hidden');
-        }
-    }
-
-    function renderRankings(ranks) {
-        const list = document.getElementById('ranking-list');
-        list.innerHTML = '';
-        if (!ranks.length) {
-            list.innerHTML = '<div class="text-sm text-gray-400 text-center py-4">아직 기록이 없습니다. 첫 번째 랭커가 되어보세요!</div>';
-            return;
-        }
-        ranks.forEach((rank, i) => {
-            const isTop3 = i < 3;
-            const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
-            const bgClass = isTop3 ? 'bg-white shadow-sm border border-indigo-50' : 'bg-transparent border-b border-gray-100 last:border-0';
-            const item = document.createElement('div');
-            item.className = `flex justify-between items-center p-3 rounded-xl ${bgClass}`;
-            item.innerHTML = `
-                <div class="flex items-center gap-3">
-                    <span class="${isTop3 ? 'text-xl' : 'text-gray-400 font-bold w-6 text-center'}">${medal}</span>
-                    <span class="font-bold ${isTop3 ? 'text-indigo-900' : 'text-gray-700'}">${rank.nickname}</span>
-                </div>
-                <div class="font-black ${isTop3 ? 'text-indigo-600' : 'text-gray-500'}">${rank.score} <span class="text-xs font-normal">문제</span></div>
-            `;
-            list.appendChild(item);
-        });
-    }
-
-    async function saveScore(nickname, score) {
-        if (score === 0) return;
-        try {
-            await addDoc(collection(db, 'rankings'), {
-                nickname,
-                score,
-                uid: currentUser?.uid || 'anonymous',
-                createdAt: serverTimestamp()
-            });
-        } catch(e) { console.error('점수 저장 실패:', e); }
-    }
-
-    // ==========================================
-    // 🎮 게임 상태
-    // 핵심: 정답(meanings)은 클라이언트에 절대 저장하지 않음
-    // 서버(Firestore)에서 검증만 수행
-    // ==========================================
-    let playlist = [];       // [{id, word, pron}] — meanings 없음
-    let currentIndex = 0;
-    let score = 0;
-    let currentNickname = '';
-    let isChecking = false;  // 중복 제출 방지
-
-    // 단어 목록 (word, pron만 — 정답 없음)
-    // Firestore에서 가져오거나, 빠른 로딩을 위해 표시용 데이터만 클라이언트에 보관
+    // 표시용 데이터 (word, pron만 — 정답 없음)
     const wordDisplayData = [
         {id:'w001',word:'ねこ',pron:'neko (네코)'},{id:'w002',word:'いぬ',pron:'inu (이누)'},
         {id:'w003',word:'とり',pron:'tori (토리)'},{id:'w004',word:'さかな',pron:'sakana (사카나)'},
@@ -336,49 +263,120 @@
         {id:'w199',word:'らいねん',pron:'rainen (라이넨)'},{id:'w200',word:'きょねん',pron:'kyonen (쿄넨)'}
     ];
 
-    // 단어장용 meanings (단어장은 학습 도구라 표시 허용)
-    const vocaMeanings = {
-        w001:['고양이'],w002:['개','강아지'],w003:['새'],w004:['물고기','생선'],w005:['비','사탕'],
-        w006:['눈'],w007:['자동차','차'],w008:['책'],w009:['집'],w010:['물'],
-        w011:['소'],w012:['말'],w013:['달'],w014:['별'],w015:['산'],
-        w016:['강'],w017:['바다'],w018:['하늘'],w019:['꽃','코'],w020:['숲'],
-        w021:['책상'],w022:['의자'],w023:['창문','창'],w024:['방'],w025:['차','마시는 차','녹차'],
-        w026:['밥','식사'],w027:['고기'],w028:['채소','야채'],w029:['딸기'],w030:['사과'],
-        w031:['귤'],w032:['복숭아'],w033:['사람'],w034:['아이','어린이','자식'],w035:['어른','성인'],
-        w036:['아침'],w037:['낮','점심'],w038:['밤'],w039:['오늘'],w040:['내일'],
-        w041:['어제'],w042:['지금'],w043:['벚꽃'],w044:['곰'],w045:['돼지'],
-        w046:['원숭이'],w047:['여우'],w048:['너구리'],w049:['구름','거미'],w050:['바람','감기'],
-        w051:['돌'],w052:['우산'],w053:['신발','구두'],w054:['시계'],w055:['가방'],
-        w056:['연필'],w057:['초밥','스시'],w058:['봄'],w059:['여름'],w060:['가을'],
-        w061:['겨울'],w062:['눈'],w063:['귀'],w064:['입'],w065:['손'],
-        w066:['발','다리'],w067:['얼굴'],w068:['머리카락','머리','종이','신'],w069:['꿈'],w070:['노래'],
-        w071:['소리'],w072:['색깔','색'],w073:['벌레','곤충'],w074:['빨강','빨간색'],w075:['파랑','파란색'],
-        w076:['검정','검은색'],w077:['하양','흰색'],w078:['노랑','노란색'],w079:['녹색','초록색'],w080:['1','일','하나'],
-        w081:['2','이','둘'],w082:['3','삼','셋'],w083:['4','사','넷'],w084:['5','오','다섯'],w085:['6','육','여섯'],
-        w086:['7','칠','일곱'],w087:['8','팔','여덟'],w088:['9','구','아홉'],w089:['10','십','열'],w090:['아빠','아버지'],
-        w091:['엄마','어머니'],w092:['형','오빠'],w093:['누나','언니'],w094:['남동생'],w095:['여동생'],
-        w096:['할아버지'],w097:['할머니'],w098:['위'],w099:['아래'],w100:['왼쪽'],
-        w101:['오른쪽'],w102:['안','속'],w103:['밖'],w104:['앞'],w105:['뒤'],
-        w106:['옆'],w107:['먹다'],w108:['마시다'],w109:['보다'],w110:['듣다','묻다'],
-        w111:['말하다','이야기하다'],w112:['가다'],w113:['오다'],w114:['하다'],w115:['있다'],
-        w116:['크다'],w117:['작다'],w118:['높다','비싸다'],w119:['싸다','저렴하다'],w120:['새롭다','새것이다'],
-        w121:['낡다','오래되다'],w122:['좋다'],w123:['나쁘다'],w124:['덥다','뜨겁다','두껍다'],w125:['춥다'],
-        w126:['맛있다'],w127:['학교'],w128:['병원'],w129:['역'],w130:['가게','상점'],
-        w131:['월요일'],w132:['화요일'],w133:['수요일'],w134:['목요일'],w135:['금요일'],
-        w136:['토요일'],w137:['일요일'],w138:['시간'],w139:['빵'],w140:['계란','달걀'],
-        w141:['우유'],w142:['요리'],w143:['친구'],w144:['선생님','선생'],w145:['학생'],
-        w146:['의사'],w147:['남자'],w148:['여자'],w149:['가족'],w150:['나무','기분'],
-        w151:['태양','해'],w152:['풀'],w153:['머리'],w154:['치아','이','잎'],w155:['배'],
-        w156:['목'],w157:['가슴'],w158:['손가락','발가락'],w159:['뼈'],w160:['화장실'],
-        w161:['목욕','욕조'],w162:['부엌','주방'],w163:['침대'],w164:['텔레비전','티비','tv'],w165:['전화','전화기'],
-        w166:['신문'],w167:['잡지'],w168:['사전'],w169:['펜'],w170:['사다','구입하다','기르다'],
-        w171:['쓰다','그리다'],w172:['읽다'],w173:['일어나다'],w174:['자다','눕다'],w175:['돌아가다','돌아오다','개구리'],
-        w176:['헤엄치다','수영하다'],w177:['놀다'],w178:['기다리다'],w179:['타다'],w180:['내리다'],
-        w181:['알다','이해하다'],w182:['어렵다'],w183:['쉽다','다정하다','상냥하다'],w184:['멀다'],w185:['가깝다'],
-        w186:['빠르다','이르다'],w187:['느리다','늦다'],w188:['바쁘다'],w189:['즐겁다'],w190:['은행'],
-        w191:['도서관'],w192:['공원'],w193:['마을','거리','도시'],w194:['나라','국가'],w195:['100','백'],
-        w196:['1000','천'],w197:['10000','만'],w198:['올해','금년'],w199:['내년'],w200:['작년']
-    };
+    // ==========================================
+    // 🏆 랭킹
+    // ==========================================
+    async function loadRankings() {
+        const el = document.getElementById('loading-ranking');
+        el.classList.remove('hidden');
+        try {
+            const q = query(collection(db, 'rankings'), orderBy('score', 'desc'), orderBy('createdAt', 'asc'), limit(10));
+            const snap = await getDocs(q);
+            renderRankings(snap.docs.map(d => d.data()));
+        } catch(e) { console.error(e); }
+        finally { el.classList.add('hidden'); }
+    }
+
+    function renderRankings(ranks) {
+        const list = document.getElementById('ranking-list');
+        list.innerHTML = '';
+        if (!ranks.length) {
+            list.innerHTML = '<div class="text-sm text-gray-400 text-center py-4">아직 기록이 없습니다. 첫 번째 랭커가 되어보세요!</div>';
+            return;
+        }
+        ranks.forEach((rank, i) => {
+            const isTop3 = i < 3;
+            const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
+            const item = document.createElement('div');
+            item.className = `flex justify-between items-center p-3 rounded-xl ${isTop3 ? 'bg-white shadow-sm border border-indigo-50' : 'bg-transparent border-b border-gray-100'}`;
+            item.innerHTML = `
+                <div class="flex items-center gap-3">
+                    <span class="${isTop3 ? 'text-xl' : 'text-gray-400 font-bold w-6 text-center'}">${medal}</span>
+                    <span class="font-bold ${isTop3 ? 'text-indigo-900' : 'text-gray-700'}">${rank.nickname}</span>
+                </div>
+                <div class="font-black ${isTop3 ? 'text-indigo-600' : 'text-gray-500'}">${rank.score} <span class="text-xs font-normal">문제</span></div>
+            `;
+            list.appendChild(item);
+        });
+    }
+
+    async function saveScore(nickname, score) {
+        if (score === 0) return;
+        try {
+            await addDoc(collection(db, 'rankings'), {
+                nickname, score,
+                uid: currentUser?.uid || 'anonymous',
+                createdAt: serverTimestamp()
+            });
+        } catch(e) { console.error('점수 저장 실패:', e); }
+    }
+
+    // ==========================================
+    // ✅ 서버에서 정답 검증 (게임용)
+    // ==========================================
+    async function verifyAnswerOnServer(wordId, userInput) {
+        const snap = await getDoc(doc(db, 'words', wordId));
+        if (!snap.exists()) return { correct: false, correctAnswers: [] };
+        const meanings = snap.data().meanings || [];
+        return {
+            correct: meanings.some(m => userInput.includes(m)),
+            correctAnswers: meanings
+        };
+    }
+
+    // ==========================================
+    // 📖 단어장: Firestore에서 전체 불러오기
+    // ==========================================
+    async function loadVocaFromFirestore() {
+        const loading = document.getElementById('voca-loading');
+        const scroll = document.getElementById('voca-scroll');
+        const container = document.getElementById('voca-list');
+
+        loading.classList.remove('hidden');
+        loading.innerHTML = `
+            <div class="w-10 h-10 border-4 border-teal-400 border-t-transparent rounded-full animate-spin"></div>
+            <span class="text-sm text-gray-400">단어장 불러오는 중...</span>
+        `;
+        scroll.classList.add('hidden');
+        container.innerHTML = '';
+
+        try {
+            const snap = await getDocs(collection(db, 'words'));
+            const idMap = {};
+            snap.docs.forEach(d => { idMap[d.id] = d.data(); });
+
+            wordDisplayData.forEach((item, i) => {
+                const data = idMap[item.id];
+                const meanings = data?.meanings?.join(', ') || '-';
+                const div = document.createElement('div');
+                div.className = "bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between";
+                div.innerHTML = `
+                    <div class="flex items-baseline gap-2 mb-1 sm:mb-0">
+                        <span class="text-xs text-gray-400 w-6">${i+1}.</span>
+                        <span class="text-xl font-black text-gray-800">${item.word}</span>
+                        <span class="text-sm text-gray-500">${item.pron}</span>
+                    </div>
+                    <div class="font-bold text-indigo-600 sm:text-right">${meanings}</div>
+                `;
+                container.appendChild(div);
+            });
+
+            loading.classList.add('hidden');
+            scroll.classList.remove('hidden');
+        } catch(e) {
+            console.error('단어장 로드 실패:', e);
+            loading.innerHTML = '<p class="text-red-400 text-sm text-center px-4">불러오기 실패. 잠시 후 다시 시도해주세요.</p>';
+        }
+    }
+
+    // ==========================================
+    // 게임 로직
+    // ==========================================
+    let playlist = [];
+    let currentIndex = 0;
+    let score = 0;
+    let currentNickname = '';
+    let isChecking = false;
 
     function shuffle(arr) {
         const a = [...arr];
@@ -389,24 +387,6 @@
         return a;
     }
 
-    // ==========================================
-    // ✅ 핵심: 서버에서 정답 검증
-    // meanings는 Firestore에서 직접 읽어오므로
-    // 클라이언트 코드에 정답이 전혀 노출되지 않음
-    // ==========================================
-    async function verifyAnswerOnServer(wordId, userInput) {
-        const ref = doc(db, 'words', wordId);
-        const snap = await getDoc(ref);
-        if (!snap.exists()) return { correct: false, correctAnswers: [] };
-        const data = snap.data();
-        const meanings = data.meanings || [];
-        const correct = meanings.some(m => userInput.includes(m));
-        return { correct, correctAnswers: meanings };
-    }
-
-    // ==========================================
-    // 화면 전환
-    // ==========================================
     window.switchScreen = function(id) {
         ['screen-start','screen-game','screen-result','screen-voca'].forEach(s => {
             document.getElementById(s).classList.add('hidden');
@@ -419,29 +399,12 @@
     };
 
     window.goToStart = function() { window.switchScreen('screen-start'); loadRankings(); };
-    window.showVoca = function() { window.switchScreen('screen-voca'); };
 
-    // 단어장 렌더링 (meanings 표시 — 학습 도구)
-    function renderVocaList() {
-        const container = document.getElementById('voca-list');
-        wordDisplayData.forEach((item, i) => {
-            const div = document.createElement('div');
-            div.className = "bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between";
-            div.innerHTML = `
-                <div class="flex items-baseline gap-2 mb-1 sm:mb-0">
-                    <span class="text-xs text-gray-400 w-6">${i+1}.</span>
-                    <span class="text-xl font-black text-gray-800">${item.word}</span>
-                    <span class="text-sm text-gray-500">${item.pron}</span>
-                </div>
-                <div class="font-bold text-indigo-600 sm:text-right">${(vocaMeanings[item.id]||[]).join(', ')}</div>
-            `;
-            container.appendChild(div);
-        });
-    }
+    window.showVoca = function() {
+        window.switchScreen('screen-voca');
+        loadVocaFromFirestore();
+    };
 
-    // ==========================================
-    // 게임 시작
-    // ==========================================
     window.startGame = function() {
         const nickInput = document.getElementById('nickname-input');
         const nickError = document.getElementById('nickname-error');
@@ -484,26 +447,16 @@
 
         try {
             const { correct, correctAnswers } = await verifyAnswerOnServer(playlist[currentIndex].id, val);
-
             if (correct) {
                 score++;
                 currentIndex++;
-                if (currentIndex >= playlist.length) {
-                    endGame(true);
-                } else {
-                    updateGameUI();
-                }
+                if (currentIndex >= playlist.length) { endGame(true); }
+                else { updateGameUI(); }
                 isChecking = false;
             } else {
                 const card = document.getElementById('word-card');
                 card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
-                showCustomAlert(
-                    '오답입니다!',
-                    `정답은 '${correctAnswers.join(', ')}' 입니다.`,
-                    '💀',
-                    () => endGame(false)
-                );
-                // isChecking은 endGame에서 리셋
+                showCustomAlert('오답입니다!', `정답은 '${correctAnswers.join(', ')}' 입니다.`, '💀', () => endGame(false));
             }
         } catch(e) {
             console.error(e);
@@ -553,13 +506,9 @@
         btn.focus();
     }
 
-    // ==========================================
-    // 초기화
-    // ==========================================
     window.onload = () => {
         const saved = localStorage.getItem('survivalNickname');
         if (saved) document.getElementById('nickname-input').value = saved;
-        renderVocaList();
         loadRankings();
     };
 </script>
